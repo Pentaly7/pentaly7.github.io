@@ -3,6 +3,12 @@ import * as THREE from 'three'
 import {onMounted, ref} from "vue";
 import {OrbitControls} from "three/addons";
 import textureAsset from "@/assets/texture.jpg"
+import {atmosphericGlow} from "@/threejs/atmosphericGlow.js";
+import {EffectComposer} from "three/addons";
+import {RenderPass} from "three/addons";
+import {BloomPass} from "three/addons";
+import {ShaderPass} from "three/addons";
+import {CopyShader} from "three/addons";
 
 /**@type {{value: HTMLCanvasElement}} */
 const mainCanvasRef = ref(null)
@@ -30,7 +36,9 @@ onMounted(() => {
   //     }
   // )
   const planetMaterial = new THREE.MeshStandardMaterial({
-    map: planetTexture
+    map: planetTexture,
+    roughness: 1.2,
+    metalness:0.3
   })
 
   // Create a group to hold the planet
@@ -40,19 +48,18 @@ onMounted(() => {
   const planet = new THREE.Mesh(planetGeometry, planetMaterial);
   planetGroup.add(planet);
 
-
-  const pointLight = new THREE.PointLight(0xffffff, 50)
+  const pointLight = new THREE.PointLight(0xffffff, 150)
   pointLight.position.set(-15, 10, 10)
   scene.add(pointLight)
 
-  const ambientLight = new THREE.AmbientLight(0xffffff, 0.1)
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.11)
   scene.add(ambientLight)
 
-  const lightHelper = new THREE.PointLightHelper(pointLight, 1)
-  scene.add(lightHelper)
-
-  const gridHelper = new THREE.GridHelper(200, 50)
-  scene.add(gridHelper)
+  // const lightHelper = new THREE.PointLightHelper(pointLight, 1)
+  // scene.add(lightHelper)
+  //
+  // const gridHelper = new THREE.GridHelper(200, 50)
+  // scene.add(gridHelper)
 
   function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight
@@ -62,32 +69,55 @@ onMounted(() => {
 
   window.addEventListener('resize', onWindowResize, false)
 
-  const ring = new THREE.Mesh(
-      new THREE.RingGeometry(13, 17, 30, 30),
-      new THREE.MeshStandardMaterial({color: 0xffffff})
-  )
-
-  // make slightly rotate
-  ring.rotation.x = -2 / 5 * Math.PI
-  ring.rotation.y = Math.PI / 10
-  scene.add(ring)
-
-  // planet.rotation.x = -2 / 5 * Math.PI
-  // planet.rotation.z = -(Math.PI / 15)
 
   // allow dragging
   const controls = new OrbitControls(camera, mainCanvasRef.value)
   controls.update()
 
-
   // Set initial planet rotation (z-axis)
   planetGroup.rotation.z = -(Math.PI / 15); // Apply z-axis rotation to the group
+
+  const atmosphereShader = {
+    vertexShader: `
+    varying vec3 vNormal;
+    void main() {
+      vNormal = normalize(normalMatrix * normal);
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+    fragmentShader: `
+    varying vec3 vNormal;
+    void main() {
+      float intensity = pow(1.0 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 2.0);
+      vec3 atmosphereColor = vec3(1.0, 1.0, 1.0); // Customize the atmosphere color (RGB)
+      gl_FragColor = vec4(atmosphereColor, 1.0) * intensity;
+    }
+  `,
+    blending: THREE.AdditiveBlending,
+  };
+
+  const atmosphereMaterial = new THREE.ShaderMaterial(atmosphereShader);
+  const atmosphere = new THREE.Mesh(planetGeometry, atmosphereMaterial);
+  atmosphere.scale.set(1.1, 1.1, 1.1); // Slightly larger than the planet
+  planet.add(atmosphericGlow)
+  planet.add(atmosphere);
+
+
+
+  const composer = new EffectComposer(renderer);
+  composer.addPass(new RenderPass(scene, camera));
+  composer.addPass(new BloomPass(0.5, 30, 0.5, 512));
+  composer.addPass(new ShaderPass(CopyShader));
+
+  const renderPass = new RenderPass(scene, camera);
+  composer.addPass(renderPass);
 
   function animate() {
     requestAnimationFrame(animate)
     planet.rotation.y -= 0.005; // Adjust the speed as needed
-    ring.rotation.z += (Math.PI / 10) * 0.005
-    renderer.render(scene, camera)
+    // ring.rotation.z += (Math.PI / 10) * 0.005
+    // renderer.render(scene, camera);
+    composer.render()
   }
 
   animate()
